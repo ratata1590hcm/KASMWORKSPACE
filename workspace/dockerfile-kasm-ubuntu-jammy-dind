@@ -1,0 +1,113 @@
+ARG BASE_TAG="develop"
+ARG BASE_IMAGE="core-ubuntu-jammy"
+FROM $BASE_IMAGE:$BASE_TAG AS builder
+ENV LD_LIBRARY_PATH=/opt/libjpeg-turbo/lib64/:/usr/local/lib/
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib/i386-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+ENV NVIDIA_DRIVER_CAPABILITIES=
+USER root
+
+ENV HOME=/home/kasm-default-profile
+ENV STARTUPDIR=/dockerstartup
+WORKDIR $HOME
+
+### Envrionment config
+ENV DEBUG=false \
+  DEBIAN_FRONTEND=noninteractive \
+  SKIP_CLEAN=true \
+  KASM_RX_HOME=$STARTUPDIR/kasmrx \
+  DONT_PROMPT_WSL_INSTALL="No_Prompt_please" \
+  INST_DIR=$STARTUPDIR/install \
+  INST_SCRIPTS="\
+  /ubuntu/install/dind/install_dind.sh \
+  /ubuntu/install/tools/install_tools_deluxe.sh \
+  /ubuntu/install/misc/install_tools.sh \
+  /ubuntu/install/firefox/install_firefox.sh \
+  /ubuntu/install/vs_code/install_vs_code.sh \
+  # /ubuntu/install/only_office/install_only_office.sh \
+  /ubuntu/install/cleanup/cleanup.sh"
+
+# Startup Scripts
+COPY ./src/ubuntu/install/dind/custom_startup.sh $STARTUPDIR/custom_startup.sh
+RUN chmod 755 $STARTUPDIR/custom_startup.sh
+COPY ./src/ubuntu/install/dind/dockerd.conf /etc/supervisor/conf.d/
+
+# Copy install scripts
+COPY ./src/ $INST_DIR
+
+# Run installations
+RUN \
+  for SCRIPT in $INST_SCRIPTS; do \
+  bash ${INST_DIR}${SCRIPT} || exit 1; \
+  done && \
+  $STARTUPDIR/set_user_permission.sh $HOME && \
+  rm -f /etc/X11/xinit/Xclients && \
+  chown 1000:0 $HOME && \
+  mkdir -p /home/kasm-user && \
+  chown -R 1000:0 /home/kasm-user && \
+  rm -Rf ${INST_DIR}
+
+
+FROM scratch
+COPY --from=builder / /
+### Labels
+LABEL "org.opencontainers.image.authors"='Huy.LeDang@vn.bosch.com"'
+LABEL "com.kasmweb.image"="true"
+LABEL "com.kasmweb.gpu_acceleration_egl"="nvidia"
+
+### Environment config
+ARG DISTRO=ubuntu
+ARG EXTRA_SH=noop.sh
+ARG LANG='en_US.UTF-8'
+ARG LANGUAGE='en_US:en'
+ARG LC_ALL='en_US.UTF-8'
+ARG START_PULSEAUDIO=1
+ARG START_XFCE4=1
+ARG TZ='Etc/UTC'
+ENV LD_LIBRARY_PATH=/opt/libjpeg-turbo/lib64/:/usr/local/lib/
+ENV LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib/i386-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}:/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+ENV NVIDIA_DRIVER_CAPABILITIES=
+ENV AUDIO_PORT=4901 \
+    DEBIAN_FRONTEND=noninteractive \
+    DISPLAY=:1 \
+    DISTRO=$DISTRO \
+    GOMP_SPINCOUNT=0 \
+    HOME=/home/kasm-user \
+    INST_SCRIPTS=/dockerstartup/install \
+    KASMVNC_AUTO_RECOVER=true \
+    KASM_VNC_PATH=/usr/share/kasmvnc \
+    LANG=$LANG \
+    LANGUAGE=$LANGUAGE \
+    LC_ALL=$LC_ALL \
+    LD_LIBRARY_PATH=/opt/libjpeg-turbo/lib64/:/usr/local/lib/ \
+    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:/usr/lib/i386-linux-gnu${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}:/usr/local/nvidia/lib:/usr/local/nvidia/lib64 \
+    MAX_FRAME_RATE=24 \
+    NO_VNC_PORT=6901 \
+    NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics,compat32,utility \
+    OMP_WAIT_POLICY=PASSIVE \
+    PULSE_RUNTIME_PATH=/var/run/pulse \
+    SDL_GAMECONTROLLERCONFIG="030000005e040000be02000014010000,XInput Controller,platform:Linux,a:b0,b:b1,x:b2,y:b3,back:b8,guide:b16,start:b9,leftstick:b10,rightstick:b11,leftshoulder:b4,rightshoulder:b5,dpup:b12,dpdown:b13,dpleft:b14,dpright:b15,leftx:a0,lefty:a1,rightx:a2,righty:a3,lefttrigger:b6,righttrigger:b7" \
+    SHELL=/bin/bash \
+    START_PULSEAUDIO=$START_PULSEAUDIO \
+    STARTUPDIR=/dockerstartup \
+    START_XFCE4=$START_XFCE4 \
+    TERM=xterm \
+    VNC_COL_DEPTH=24 \
+    VNCOPTIONS="-PreferBandwidth -DynamicQualityMin=4 -DynamicQualityMax=7 -DLP_ClipDelay=0" \
+    VNC_PORT=5901 \
+    VNC_PW=vncpassword \
+    VNC_RESOLUTION=1920x1080 \
+    VNC_VIEW_ONLY_PW=vncviewonlypassword \
+    TZ=$TZ
+
+### Ports and user
+EXPOSE $VNC_PORT \
+       $NO_VNC_PORT \
+       $UPLOAD_PORT \
+       $AUDIO_PORT
+
+# Userspace Runtime
+ENV HOME=/home/kasm-user
+WORKDIR $HOME
+USER 1000
+ENTRYPOINT ["/dockerstartup/kasm_default_profile.sh", "/dockerstartup/vnc_startup.sh", "/dockerstartup/kasm_startup.sh"]
+CMD ["--tail-log"]

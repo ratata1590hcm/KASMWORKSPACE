@@ -1,0 +1,12 @@
+services:
+  ubuntu-jammy-core:
+    image: core-ubuntu-jammy:develop
+    build:
+      context: core
+      dockerfile: dockerfile-kasm-core
+
+  ubuntu-jammy-dind:
+    image: ubuntu-jammy-dind:develop
+    build:
+      context: workspace
+      dockerfile: dockerfile-kasm-ubuntu-jammy-dind
